@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAB 33 - SURVIVAL</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            /* Hidden by default so it doesn't show on start screen */
+            display: none; 
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 10px; height: 10px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 5px #fff;
+        }
+
+        #objective-text {
+            color: #fff;
+            font-size: 24px;
+            text-shadow: 0 0 5px #00ff00;
+        }
+
+        /* Sprint Bar */
+        #sprint-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 200px;
+            height: 10px;
+            background: #333;
+            border: 1px solid #555;
+        }
+
+        #sprint-bar {
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            transition: width 0.1s;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            /* Semi-transparent background for security cam effect */
+            background: rgba(0, 0, 0, 0.2); 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            color: #fff;
+            text-align: center;
+            /* Static/Flicker Animation */
+            animation: staticFlicker 0.15s infinite;
+        }
+        
+        @keyframes staticFlicker {
+            0% { opacity: 0.95; }
+            50% { opacity: 1; }
+            100% { opacity: 0.98; }
+        }
+        
+        /* Scanline overlay for start screen/security cam vibe */
+        #start-screen::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .diff-btn {
+            background: #111;
+            color: #fff;
+            border: 1px solid #fff;
+            padding: 15px 30px;
+            margin: 10px;
+            font-size: 20px;
+            font-family: 'Courier New', Courier, monospace;
+            cursor: pointer;
+            width: 200px;
+            transition: 0.2s;
+        }
+
+        .diff-btn:hover {
+            background: #fff;
+            color: #000;
+        }
+
+        #game-over-screen, #win-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            z-index: 20;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+        }
+        
+        /* Jumpscare Container */
+        #scare-face {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: black;
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        /* The Face Graphic */
+        #scare-graphic {
+            width: 100%;
+            height: 100%;
+            transform: scale(0.1); /* Start small */
+        }
+
+        /* Attack Animation - MORE AGGRESSIVE */
+        .attacking #scare-graphic {
+            animation: lunge 0.15s forwards ease-in; /* Faster lunge */
+        }
+
+        @keyframes lunge {
+            0% { transform: scale(0.2) translate(0, 50px); opacity: 0; }
+            40% { opacity: 1; }
+            100% { transform: scale(2.5) rotate(10deg); } /* Bigger scale for "in your face" effect */
+        }
+
+        @keyframes flash {
+            0% { background: #000; }
+            50% { background: #500; }
+            100% { background: #000; }
+        }
+
+        .flashing {
+            animation: flash 0.1s infinite;
+        }
+        
+        .interact-hint {
+            position: absolute;
+            top: 60%; left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-size: 18px;
+            display: none;
+        }
+        
+        /* Cam rec indicator */
+        .rec-indicator {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: red;
+            font-weight: bold;
+            animation: blink 1s infinite;
+            display: none; /* Only show on start screen logic */
+        }
+        
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="start-screen">
+        <div class="rec-indicator" style="display:block;">● REC [CAM 04]</div>
+        <h1 style="color: #f00; font-size: 50px; margin-bottom: 10px; text-shadow: 2px 2px 0 #000;">LAB 33</h1>
+        <p style="margin-bottom: 30px; text-shadow: 1px 1px 0 #000;">Power is out. Subject Zero is loose.</p>
+        
+        <p style="text-shadow: 1px 1px 0 #000;">SELECT DIFFICULTY:</p>
+        <button class="diff-btn" onclick="startGame('easy')">EASY</button>
+        <button class="diff-btn" onclick="startGame('medium')">MEDIUM</button>
+        <button class="diff-btn" onclick="startGame('hard')">HARD</button>
+        <p style="font-size: 12px; margin-top: 20px; opacity: 0.7;">(Click anywhere to enable audio if silent)</p>
+    </div>
+
+    <div id="game-over-screen">
+        <h1 style="color: red; font-size: 60px;">YOU DIED</h1>
+        <button class="diff-btn" onclick="location.reload()">TRY AGAIN</button>
+    </div>
+
+    <div id="win-screen">
+        <h1 style="color: #0f0; font-size: 60px;">ESCAPED</h1>
+        <p>You made it out alive.</p>
+        <button class="diff-btn" onclick="location.reload()">PLAY AGAIN</button>
+    </div>
+
+    <!-- Jumpscare Layer -->
+    <div id="scare-face">
+        <svg id="scare-graphic" viewBox="0 0 100 100">
+            <rect width="100" height="100" fill="black"/>
+            <!-- Shadowy Head -->
+            <circle cx="50" cy="50" r="40" fill="#111" />
+            
+            <!-- Glowing Red Eyes -->
+            <ellipse cx="35" cy="40" rx="8" ry="12" fill="red" />
+            <ellipse cx="65" cy="40" rx="8" ry="12" fill="red" />
+            <circle cx="35" cy="40" r="2" fill="white" />
+            <circle cx="65" cy="40" r="2" fill="white" />
+            
+            <!-- Screaming Mouth -->
+            <path d="M 30 70 Q 50 95 70 70" stroke="black" fill="#300" stroke-width="2"/>
+            <!-- Teeth -->
+            <path d="M 32 70 L 37 80 L 42 70 L 47 80 L 52 70 L 57 80 L 62 70 L 67 80" fill="white" />
+            
+            <!-- Angry Eyebrows -->
+            <path d="M 25 25 L 45 35" stroke="black" stroke-width="3" />
+            <path d="M 75 25 L 55 35" stroke="black" stroke-width="3" />
+            
+            <!-- Hands reaching out (New) -->
+            <path d="M 10 90 L 20 60 L 5 50" stroke="#111" stroke-width="10" fill="none"/>
+            <path d="M 90 90 L 80 60 L 95 50" stroke="#111" stroke-width="10" fill="none"/>
+        </svg>
+    </div>
+
+    <div id="ui-layer">
+        <div id="objective-text">Power: 0/5</div>
+        <div id="crosshair"></div>
+        <div id="interact-hint" class="interact-hint">Press E to Activate</div>
+        <div id="sprint-container">
+            <div id="sprint-bar"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- GAME CONFIG ---
+        let MONSTER_BASE_SPEED = 0.095;
+        let currentMonsterSpeed = 0.095;
+        const INTERACTION_DIST = 15;
+        const MAP_CELL_SIZE = 10;
+        
+        // Movement Constants
+        const WALK_SPEED = 100.0;
+        const SPRINT_SPEED = 200.0;
+        const MAX_SPRINT = 100;
+        const SPRINT_DRAIN = 20; 
+        const SPRINT_REGEN = 12.5; 
+        
+        let camera, scene, renderer, controls;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, isSprinting = false;
+        let prevTime = performance.now();
+        let velocity = new THREE.Vector3();
+        
+        let switches = [];
+        let walls = [];
+        let mapGrid = []; 
+        let switchesActivated = 0;
+        const TOTAL_SWITCHES = 5;
+        
+        let monster;
+        let exitDoor;
+        let isGameActive = false;
+        let isDead = false;
+        let isWon = false;
+        let activeScreams = [];
+        
+        let sprintEnergy = 100;
+        let isExhausted = false; // New flag for sprint cooldown
+        let footstepTimer = 0;
+        let breathTimer = 0;
+        
+        let pathUpdateTimer = 0;
+        let currentPath = [];
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let nextAmbienceTime = 0;
+        let lastWhisperTime = 0; 
+        let menuMusic = null;
+        
+        // New variables for Menu Lighting
+        let menuLight;
+        let flashLight; // Define flashlight globally so we can toggle it
+        
+        function startGame(difficulty) {
+            if (difficulty === 'easy') currentMonsterSpeed = 0.06;
+            if (difficulty === 'medium') currentMonsterSpeed = 0.09;
+            if (difficulty === 'hard') currentMonsterSpeed = 0.13; 
+            MONSTER_BASE_SPEED = currentMonsterSpeed;
+            
+            // Stop menu music
+            if(menuMusic) {
+                menuMusic.pause();
+                menuMusic.currentTime = 0;
+            }
+            
+            // Disable Security Light
+            if (menuLight) menuLight.visible = false;
+            
+            // Enable Player Flashlight
+            if (flashLight) flashLight.intensity = 2; // Turn ON
+            
+            // Reset Camera to Spawn
+            camera.position.set(-70, 5, -55);
+            camera.rotation.set(0, 0, 0); // Reset rotation to default
+            
+            // Reset Monster to Gameplay Spawn (Far Away)
+            if (monster) {
+                monster.position.set(30, 0, 30);
+                monster.rotation.set(0,0,0);
+            }
+
+            document.body.requestPointerLock();
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000000, 0.035); 
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.rotation.order = 'YXZ'; 
+            
+            // SECURITY CAMERA SETUP (Menu View)
+            // Reverted to the first camera position (High corner looking down)
+            camera.position.set(45, 12, 45); 
+            camera.lookAt(30, 0, 30); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x050505); 
+            scene.add(ambientLight);
+
+            // PLAYER FLASHLIGHT (Initially OFF for menu)
+            flashLight = new THREE.SpotLight(0xffffff, 2, 60, 0.6, 0.5, 1);
+            flashLight.position.set(0, 0, 0); 
+            flashLight.target.position.set(0, 0, -1);
+            flashLight.intensity = 0; // Off during menu
+            camera.add(flashLight);
+            camera.add(flashLight.target);
+            scene.add(camera);
+            
+            // SECURITY CAM LIGHT (Menu Only)
+            // Wide angle, dim, slightly blue/green for that "camera night mode" feel
+            menuLight = new THREE.SpotLight(0xaaddff, 1.0, 100, 1.2, 0.5, 1);
+            menuLight.position.set(45, 12, 45); // Matches camera
+            menuLight.target.position.set(30, 0, 30);
+            scene.add(menuLight);
+            scene.add(menuLight.target);
+
+            createLab();
+            createMonster();
+            
+            // MONSTER MENU POSITION
+            // Moved to the LEFT side (relative to cam) in the shadows
+            if (monster) {
+                monster.position.set(38, 0, 22); // Tucked in the corner
+                monster.lookAt(camera.position); 
+            }
+            
+            // Initialize Menu Music
+            menuMusic = new Audio("https://www.myinstants.com/media/sounds/distorted-trumpets-hl2.mp3");
+            menuMusic.loop = true;
+            menuMusic.volume = 0.6;
+            // Attempt auto-play (might require click)
+            menuMusic.play().catch(() => {
+                document.addEventListener('click', () => {
+                    if(!isGameActive && menuMusic.paused && !isDead && !isWon) menuMusic.play();
+                }, { once: true });
+            });
+            
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('click', () => {
+                if(isGameActive && !isDead && !isWon) {
+                    tryInteract();
+                }
+            });
+
+            document.addEventListener('pointerlockchange', () => {
+                if(document.pointerLockElement === document.body) {
+                    isGameActive = true;
+                    document.getElementById('start-screen').style.display = 'none';
+                    // Show UI when game starts
+                    document.getElementById('ui-layer').style.display = 'flex'; 
+                    audioCtx.resume();
+                    playHum();
+                } else {
+                    isGameActive = false;
+                    // Optional: Hide UI on pause if desired, but definitely on death/win
+                }
+            });
+            
+            document.addEventListener('mousemove', (event) => {
+                if (isGameActive) {
+                    camera.rotation.y -= event.movementX * 0.002;
+                    camera.rotation.x -= event.movementY * 0.002;
+                    camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+                }
+            });
+
+            animate();
+        }
+
+        // --- TEXTURES ---
+        function createWallTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#4a4a4a'; ctx.fillRect(0,0,256,256);
+            for(let i=0; i<1000; i++) {
+                ctx.fillStyle = `rgba(30, 30, 30, ${Math.random() * 0.3})`;
+                ctx.fillRect(Math.random()*256, Math.random()*256, 4, 4);
+            }
+            ctx.fillStyle = '#665500'; ctx.fillRect(0, 240, 256, 16);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createFloorTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#222'; ctx.fillRect(0,0,256,256);
+            ctx.strokeStyle = '#333'; ctx.lineWidth = 4; ctx.strokeRect(0,0,256,256);
+            for(let i=0; i<500; i++) {
+                ctx.fillStyle = `rgba(50, 50, 50, ${Math.random() * 0.2})`;
+                ctx.fillRect(Math.random()*256, Math.random()*256, 2, 2);
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(4, 4);
+            return tex;
+        }
+
+        function createExitSignTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 256; // Increased resolution
+            const ctx = canvas.getContext('2d');
+            
+            // 1. White Background (Outer Border)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 512, 256);
+            
+            // 2. Green Inner Box
+            ctx.fillStyle = '#008800'; // Standard Exit Green
+            ctx.fillRect(15, 15, 482, 226);
+            
+            // 3. "Exit" Text
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 160px Arial';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("Exit", 40, 128);
+            
+            // 4. Running Man Graphic (Right Side)
+            // Door Frame
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(330, 40, 140, 180);
+            
+            // Man (Simplified Geometric shapes)
+            ctx.fillStyle = '#ffffff';
+            // Head
+            ctx.beginPath(); ctx.arc(380, 80, 15, 0, Math.PI*2); ctx.fill();
+            // Body
+            ctx.save();
+            ctx.translate(390, 120);
+            ctx.rotate(0.2);
+            ctx.fillRect(-10, -20, 20, 60);
+            ctx.restore();
+            // Arms
+            ctx.lineWidth = 12;
+            ctx.strokeStyle = '#ffffff';
+            ctx.beginPath(); ctx.moveTo(390, 100); ctx.lineTo(360, 110); ctx.lineTo(350, 90); ctx.stroke(); // Back arm
+            ctx.beginPath(); ctx.moveTo(390, 100); ctx.lineTo(420, 110); ctx.lineTo(430, 90); ctx.stroke(); // Front arm
+            // Legs
+            ctx.beginPath(); ctx.moveTo(390, 150); ctx.lineTo(370, 180); ctx.lineTo(350, 180); ctx.stroke(); // Back leg
+            ctx.beginPath(); ctx.moveTo(390, 150); ctx.lineTo(420, 170); ctx.lineTo(430, 200); ctx.stroke(); // Front leg
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createDoorTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            
+            // Base Metal - Dark
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0, 0, 512, 1024);
+            
+            // Noise for grit
+            for(let i=0; i<8000; i++) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.05})`;
+                ctx.fillRect(Math.random()*512, Math.random()*1024, 2, 2);
+            }
+
+            // --- HAZARD BORDERS ---
+            const stripeWidth = 60;
+            const hazardColor = '#FFD700'; 
+            ctx.fillStyle = hazardColor;
+            ctx.fillRect(0, 0, stripeWidth, 1024);
+            ctx.fillRect(512 - stripeWidth, 0, stripeWidth, 1024);
+            
+            ctx.fillStyle = '#000';
+            for (let i = 0; i < 1200; i += 60) {
+                ctx.beginPath();
+                ctx.moveTo(0, i); ctx.lineTo(stripeWidth, i + 60); ctx.lineTo(stripeWidth, i + 30); ctx.lineTo(0, i - 30); ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(512 - stripeWidth, i); ctx.lineTo(512, i + 60); ctx.lineTo(512, i + 30); ctx.lineTo(512 - stripeWidth, i - 30); ctx.fill();
+            }
+
+            // --- INNER PANELS ---
+            const panelX = stripeWidth + 10;
+            const panelW = 512 - (stripeWidth * 2) - 20;
+            
+            // Background for panel - NOW TRANSPARENT to let base metal show
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.0)'; 
+            ctx.fillRect(panelX, 20, panelW, 984);
+
+            // Diamond Plate Pattern - LIGHT LINES FOR CONTRAST
+            ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)'; 
+            ctx.lineWidth = 2;
+            for(let y = 30; y < 1000; y += 30) {
+                for(let x = panelX + 10; x < panelX + panelW - 10; x += 30) {
+                    ctx.beginPath(); 
+                    ctx.moveTo(x, y); ctx.lineTo(x+10, y+10); 
+                    ctx.moveTo(x+10, y); ctx.lineTo(x, y+10); 
+                    ctx.stroke();
+                }
+            }
+
+            // --- CENTER BEAM (Transparent/Tinted) ---
+            const beamW = 140;
+            const beamX = 256 - (beamW/2);
+            // Replaced solid fill with transparent tint so texture shows
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'; 
+            ctx.fillRect(beamX, 0, beamW, 1024);
+            
+            // Beam Borders
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(beamX, 0, beamW, 1024);
+
+            // --- BOLTS / RIVETS ---
+            ctx.fillStyle = '#000'; 
+            const boltX1 = beamX + 20;
+            const boltX2 = beamX + beamW - 20;
+            for(let y = 50; y < 1000; y += 100) {
+                ctx.beginPath(); ctx.arc(boltX1, y + 50, 8, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(boltX2, y + 50, 8, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#888';
+                ctx.beginPath(); ctx.arc(boltX1, y + 50, 4, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(boltX2, y + 50, 4, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#000';
+            }
+
+            // Warning Text
+            ctx.save();
+            ctx.translate(256, 300);
+            ctx.rotate(Math.PI/2); 
+            ctx.fillStyle = "#FF3333";
+            ctx.font = "bold 60px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("BLAST DOOR", 0, 0);
+            ctx.restore();
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+
+        // --- WORLD GENERATION ---
+        function createLab() {
+            const wallTex = createWallTexture();
+            const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.8, metalness: 0.2 });
+            const floorTex = createFloorTexture();
+            const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9, metalness: 0.1 });
+            
+            // Use same texture for ceiling but maybe darker
+            const ceilMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9, metalness: 0.1, color: 0x888888 });
+
+            const floorGeo = new THREE.PlaneGeometry(200, 200);
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.material.map.repeat.set(20, 20);
+            scene.add(floor);
+
+            const ceil = new THREE.Mesh(floorGeo, ceilMat);
+            ceil.rotation.x = Math.PI / 2;
+            ceil.position.y = 10;
+            ceil.material.map.repeat.set(20, 20);
+            scene.add(ceil);
+
+            const cellSize = MAP_CELL_SIZE;
+            
+            // 1=Wall, 0=Empty, 2=Switch, 9=Door
+            mapGrid = [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,0,0,0,1,0,0,0,0,0,1,2,0,0,0,1],
+                [1,0,1,0,1,0,1,1,1,0,1,1,1,1,0,1],
+                [1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,1],
+                [1,2,1,1,1,1,1,0,1,1,1,1,0,1,1,1],
+                [1,0,0,0,0,0,1,0,0,0,0,0,0,0,2,1],
+                [1,1,1,0,1,0,1,1,1,1,1,1,1,1,0,1],
+                [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,1],
+                [1,0,1,1,1,1,1,1,1,0,1,1,0,1,0,1],
+                [1,0,0,0,2,0,0,0,1,0,1,2,0,0,0,1],
+                [1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1],
+                [1,0,0,0,0,0,0,0,9,0,0,0,0,0,0,1], 
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            ];
+
+            const boxGeo = new THREE.BoxGeometry(cellSize, 10, cellSize);
+
+            for(let z=0; z<mapGrid.length; z++) {
+                for(let x=0; x<mapGrid[z].length; x++) {
+                    const type = mapGrid[z][x];
+                    const posX = (x - mapGrid[0].length/2) * cellSize;
+                    const posZ = (z - mapGrid.length/2) * cellSize;
+
+                    if(type === 1) {
+                        const wall = new THREE.Mesh(boxGeo, wallMat);
+                        wall.position.set(posX, 5, posZ);
+                        scene.add(wall);
+                        walls.push(new THREE.Box3().setFromObject(wall));
+                    } else if (type === 2) {
+                        // Determine Wall neighbor for switch placement
+                        let wallX = 0, wallZ = 0, rot = 0;
+                        if (x > 0 && mapGrid[z][x-1] === 1) { 
+                            wallX = -4.5; rot = Math.PI/2;
+                        } else if (x < mapGrid[0].length-1 && mapGrid[z][x+1] === 1) { 
+                            wallX = 4.5; rot = -Math.PI/2;
+                        } else if (z > 0 && mapGrid[z-1][x] === 1) { 
+                            wallZ = -4.5; rot = 0;
+                        } else if (z < mapGrid.length-1 && mapGrid[z+1][x] === 1) { 
+                            wallZ = 4.5; rot = Math.PI;
+                        }
+                        
+                        createSwitch(posX + wallX, 4, posZ + wallZ, rot);
+                        
+                        // Also chance for ceiling light near switches
+                        if(Math.random() < 0.5) createCeilingLight(posX, posZ);
+
+                    } else if (type === 9) {
+                        createExitDoor(posX, posZ + 5); 
+                    } else if (type === 0) {
+                        const rnd = Math.random();
+                        if (rnd < 0.1) createTable(posX, posZ);
+                        else if (rnd < 0.2) createCrate(posX, posZ);
+                        else if (rnd < 0.25) createCeilingLight(posX, posZ); // Random lights
+                    }
+                }
+            }
+        }
+
+        // Props
+        function createTable(x, z) {
+            const group = new THREE.Group();
+            const topGeo = new THREE.BoxGeometry(6, 0.5, 3);
+            const mat = new THREE.MeshStandardMaterial({color: 0x888888, roughness: 0.5});
+            const top = new THREE.Mesh(topGeo, mat); top.position.y = 3; group.add(top);
+            const legGeo = new THREE.CylinderGeometry(0.2, 0.2, 3);
+            const legMat = new THREE.MeshStandardMaterial({color: 0x222222});
+            const l1 = new THREE.Mesh(legGeo, legMat); l1.position.set(-2.5, 1.5, 1); group.add(l1);
+            const l2 = new THREE.Mesh(legGeo, legMat); l2.position.set(2.5, 1.5, 1); group.add(l2);
+            const l3 = new THREE.Mesh(legGeo, legMat); l3.position.set(-2.5, 1.5, -1); group.add(l3);
+            const l4 = new THREE.Mesh(legGeo, legMat); l4.position.set(2.5, 1.5, -1); group.add(l4);
+            const vialGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.8);
+            const vialMat = new THREE.MeshStandardMaterial({color: 0x00ff00, emissive: 0x004400});
+            const vial = new THREE.Mesh(vialGeo, vialMat); vial.position.set(0, 3.5, 0); group.add(vial);
+            const vialLight = new THREE.PointLight(0x00ff00, 1, 5); vialLight.position.set(0, 4, 0); group.add(vialLight);
+            group.position.set(x, 0, z); group.rotation.y = Math.random() * Math.PI;
+            scene.add(group); walls.push(new THREE.Box3().setFromObject(top));
+        }
+
+        function createCrate(x, z) {
+            const geo = new THREE.BoxGeometry(3, 3, 3);
+            const mat = new THREE.MeshStandardMaterial({color: 0x5c4033, roughness: 0.9});
+            const crate = new THREE.Mesh(geo, mat); crate.position.set(x, 1.5, z); crate.rotation.y = Math.random() * 0.5;
+            scene.add(crate); walls.push(new THREE.Box3().setFromObject(crate));
+        }
+
+        function createSwitch(x, y, z, rot) {
+            const baseGeo = new THREE.BoxGeometry(1, 1.5, 0.2);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const base = new THREE.Mesh(baseGeo, baseMat);
+            
+            const lightGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+            const lightMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2 });
+            const light = new THREE.Mesh(lightGeo, lightMat);
+            light.position.z = 0.15; 
+            
+            const group = new THREE.Group(); 
+            group.add(base); group.add(light);
+            group.position.set(x, y, z);
+            group.rotation.y = rot;
+            
+            group.userData = { active: false, lightMesh: light };
+            scene.add(group); switches.push(group);
+        }
+
+        function createCeilingLight(x, z) {
+            const lightGeo = new THREE.BoxGeometry(4, 0.1, 0.5); // Long skinny light
+            const lightMat = new THREE.MeshStandardMaterial({ color: 0xddffdd, emissive: 0xccffcc, emissiveIntensity: 0.5 });
+            const mesh = new THREE.Mesh(lightGeo, lightMat);
+            mesh.position.set(x, 9.9, z);
+            
+            // Random rotation (0 or 90 deg)
+            if(Math.random() > 0.5) mesh.rotation.y = Math.PI/2;
+
+            // Faint light source
+            const light = new THREE.PointLight(0xccffcc, 0.4, 15);
+            light.position.set(0, -1, 0);
+            mesh.add(light);
+
+            scene.add(mesh);
+        }
+
+        function createExitDoor(x, z) {
+            const group = new THREE.Group();
+            const frameGeo = new THREE.BoxGeometry(10, 10, 2);
+            const frameMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            const frame = new THREE.Mesh(frameGeo, frameMat); frame.position.y = 5; group.add(frame);
+            
+            const doorTex = createDoorTexture();
+            const doorGeo = new THREE.BoxGeometry(8, 9, 1.5);
+            // Emissive slightly to be visible in dark
+            // REDUCED METALNESS to stop glare, INCREASED ROUGHNESS for better texture visibility
+            const doorMat = new THREE.MeshStandardMaterial({ map: doorTex, metalness: 0.1, roughness: 0.8, emissive: 0x222222 });
+            const door = new THREE.Mesh(doorGeo, doorMat); door.position.y = 4.5; group.add(door);
+
+            const indGeo = new THREE.BoxGeometry(3, 0.5, 1.6);
+            const indMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 3 });
+            const ind = new THREE.Mesh(indGeo, indMat); ind.position.set(0, 9, 0); group.add(ind);
+
+            // -- NEW EXIT SIGN --
+            const signTex = createExitSignTexture();
+            const signGeo = new THREE.BoxGeometry(4, 1.5, 0.5);
+            const signMat = new THREE.MeshStandardMaterial({ map: signTex, color: 0xffffff, emissive: 0x00ff00, emissiveIntensity: 0.8 });
+            const sign = new THREE.Mesh(signGeo, signMat);
+            sign.position.set(-8.5, 8, 0.5); 
+            group.add(sign);
+
+            const signLight = new THREE.PointLight(0x00ff00, 1.5, 12);
+            signLight.position.set(-8.5, 8, 2);
+            group.add(signLight);
+            
+            // -- DOOR GLOW (Initially Off) --
+            // Large radius green light for "opening" effect
+            const doorGlow = new THREE.PointLight(0x00ff00, 0, 50); // Int 0, Dist 50 (~5 tiles)
+            doorGlow.position.set(0, 5, 5);
+            group.add(doorGlow);
+            // -------------------
+
+            group.position.set(x, 0, z); 
+            group.userData = { locked: true, indicator: ind, glowLight: doorGlow };
+            exitDoor = group; scene.add(group); walls.push(new THREE.Box3().setFromObject(door));
+        }
+
+        function createMonster() {
+            monster = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1 }); 
+            const legGeo = new THREE.CylinderGeometry(0.3, 0.2, 4);
+            const leftLeg = new THREE.Mesh(legGeo, mat); leftLeg.position.set(-0.7, 2, 0); monster.add(leftLeg);
+            const rightLeg = new THREE.Mesh(legGeo, mat); rightLeg.position.set(0.7, 2, 0); monster.add(rightLeg);
+            const torsoGeo = new THREE.BoxGeometry(1.4, 3.5, 1);
+            const torso = new THREE.Mesh(torsoGeo, mat); torso.position.y = 5.75; monster.add(torso);
+            const headGeo = new THREE.SphereGeometry(0.8);
+            const head = new THREE.Mesh(headGeo, mat); head.position.y = 8; monster.add(head);
+            const armGeo = new THREE.CylinderGeometry(0.2, 0.15, 3.5);
+            const leftArm = new THREE.Mesh(armGeo, mat); leftArm.position.set(-1.2, 6, 0); leftArm.rotation.z = 0.3; monster.add(leftArm);
+            const rightArm = new THREE.Mesh(armGeo, mat); rightArm.position.set(1.2, 6, 0); rightArm.rotation.z = -0.3; monster.add(rightArm);
+            const eyeGeo = new THREE.SphereGeometry(0.15, 8, 8);
+            const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 10 });
+            const leftEye = new THREE.Mesh(eyeGeo, eyeMat); leftEye.position.set(-0.3, 8, 0.7); monster.add(leftEye);
+            const rightEye = new THREE.Mesh(eyeGeo, eyeMat); rightEye.position.set(0.3, 8, 0.7); monster.add(rightEye);
+            const eyeLight = new THREE.PointLight(0xff0000, 1, 10); eyeLight.position.set(0, 8.2, 1); monster.add(eyeLight);
+            monster.position.set(30, 0, 30); 
+            
+            // Save limb refs for animation
+            monster.userData.limbs = {
+                leftLeg: leftLeg, rightLeg: rightLeg,
+                leftArm: leftArm, rightArm: rightArm
+            };
+
+            scene.add(monster);
+        }
+
+        // --- GAME LOGIC ---
+
+        function onKeyDown(event) {
+            if(event.code === 'KeyE') tryInteract();
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                case 'ArrowRight': case 'KeyD': moveRight = true; break;
+                case 'ShiftLeft': case 'ShiftRight': isSprinting = true; break;
+            }
+        }
+
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                case 'ArrowRight': case 'KeyD': moveRight = false; break;
+                case 'ShiftLeft': case 'ShiftRight': isSprinting = false; break;
+            }
+        }
+
+        function tryInteract() {
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if(intersects.length > 0) {
+                let obj = intersects[0].object;
+                while(obj.parent && obj.parent.type !== 'Scene') {
+                    if(obj.parent.userData && obj.parent.userData.lightMesh) {
+                        toggleSwitch(obj.parent);
+                        return;
+                    }
+                    obj = obj.parent;
+                }
+            }
+        }
+
+        function toggleSwitch(switchGroup) {
+            if(switchGroup.userData.active) return;
+            const dist = camera.position.distanceTo(switchGroup.position);
+            if(dist > INTERACTION_DIST) return;
+
+            switchGroup.userData.active = true;
+            switchGroup.userData.lightMesh.material.color.setHex(0x00ff00);
+            switchGroup.userData.lightMesh.material.emissive.setHex(0x00ff00);
+            
+            switchesActivated++;
+            document.getElementById('objective-text').innerText = `Power: ${switchesActivated}/${TOTAL_SWITCHES}`;
+            
+            playSwitchSound(); 
+
+            if(switchesActivated === TOTAL_SWITCHES) {
+                document.getElementById('objective-text').innerText = "DOOR UNLOCKED. ESCAPE.";
+                document.getElementById('objective-text').style.color = "#0f0";
+                exitDoor.userData.locked = false;
+                exitDoor.userData.indicator.material.color.setHex(0x00ff00);
+                exitDoor.userData.indicator.material.emissive.setHex(0x00ff00);
+                
+                // Activate the big green glow!
+                if(exitDoor.userData.glowLight) {
+                    exitDoor.userData.glowLight.intensity = 2.0; 
+                }
+
+                currentMonsterSpeed = currentMonsterSpeed * 1.5;
+            }
+        }
+
+        function updatePlayer(delta) {
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
+            
+            const inputZ = Number(moveForward) - Number(moveBackward);
+            const inputX = Number(moveRight) - Number(moveLeft);
+            const isMoving = moveForward || moveBackward || moveLeft || moveRight;
+
+            // Sprint Logic with Exhaustion
+            let speedMultiplier = WALK_SPEED;
+            
+            // Recover from exhaustion only if we have enough energy
+            if (isExhausted) {
+                if (sprintEnergy > 25) isExhausted = false; // Must wait for 25% recharge
+            }
+
+            if (isSprinting && !isExhausted && sprintEnergy > 0 && isMoving) {
+                speedMultiplier = SPRINT_SPEED;
+                sprintEnergy = Math.max(0, sprintEnergy - (SPRINT_DRAIN * delta));
+                
+                // If we hit 0, trigger exhaustion
+                if (sprintEnergy <= 0) {
+                    isExhausted = true;
+                }
+                
+                // Breath logic
+                breathTimer += delta;
+                if(breathTimer > 1.5) {
+                    playBreath();
+                    breathTimer = 0;
+                }
+            } else {
+                sprintEnergy = Math.min(MAX_SPRINT, sprintEnergy + (SPRINT_REGEN * delta));
+                breathTimer = 1.0; // Reset breath timer so it starts sooner on next run
+            }
+            
+            // Update UI
+            document.getElementById('sprint-bar').style.width = sprintEnergy + '%';
+            
+            // Visual feedback for exhaustion (Bar turns red)
+            if (isExhausted) {
+                document.getElementById('sprint-bar').style.backgroundColor = '#ff3333';
+            } else {
+                document.getElementById('sprint-bar').style.backgroundColor = '#fff';
+            }
+
+            if (isMoving) {
+                const yaw = camera.rotation.y;
+                const vForward = new THREE.Vector3( -Math.sin(yaw), 0, -Math.cos(yaw) );
+                const vRight = new THREE.Vector3( Math.cos(yaw), 0, -Math.sin(yaw) );
+                const moveVec = new THREE.Vector3();
+                moveVec.addScaledVector(vForward, inputZ);
+                moveVec.addScaledVector(vRight, inputX);
+                moveVec.normalize();
+                
+                velocity.x += moveVec.x * speedMultiplier * delta;
+                velocity.z += moveVec.z * speedMultiplier * delta;
+
+                // Footsteps
+                footstepTimer += delta;
+                // Faster footstep interval when sprinting (0.25)
+                const stepInterval = isSprinting && sprintEnergy > 0 ? 0.25 : 0.6;
+                if (footstepTimer > stepInterval) {
+                    playFootstep();
+                    footstepTimer = 0;
+                }
+            } else {
+                footstepTimer = 0.5; // Reset so step plays immediately on move
+            }
+
+            const deltaX = velocity.x * delta;
+            const deltaZ = velocity.z * delta;
+            
+            // Collision
+            let potentialX = camera.position.x + deltaX;
+            let potentialZ = camera.position.z + deltaZ;
+            let collideX = false;
+            let collideZ = false;
+            const playerBox = new THREE.Box3();
+            const playerSize = new THREE.Vector3(2, 10, 2);
+            playerBox.setFromCenterAndSize(new THREE.Vector3(potentialX, 5, camera.position.z), playerSize);
+            for(let w of walls) { if(w.intersectsBox(playerBox)) collideX = true; }
+            playerBox.setFromCenterAndSize(new THREE.Vector3(camera.position.x, 5, potentialZ), playerSize);
+            for(let w of walls) { if(w.intersectsBox(playerBox)) collideZ = true; }
+            if(!collideX) camera.position.x = potentialX;
+            if(!collideZ) camera.position.z = potentialZ;
+            camera.position.y = 5;
+            
+            if(!exitDoor.userData.locked) {
+                const d = camera.position.distanceTo(exitDoor.position);
+                if(d < 8) gameWin();
+            }
+        }
+
+        // --- PATHFINDING & MONSTER LOGIC ---
+        
+        function worldToGrid(x, z) {
+            const gridX = Math.round((x / MAP_CELL_SIZE) + mapGrid[0].length/2);
+            const gridZ = Math.round((z / MAP_CELL_SIZE) + mapGrid.length/2);
+            return { x: gridX, y: gridZ };
+        }
+
+        function gridToWorld(gx, gz) {
+            return {
+                x: (gx - mapGrid[0].length/2) * MAP_CELL_SIZE,
+                z: (gz - mapGrid.length/2) * MAP_CELL_SIZE
+            };
+        }
+
+        function findPath(start, end) {
+            const queue = [start];
+            const visited = new Set();
+            visited.add(`${start.x},${start.y}`);
+            const cameFrom = {};
+
+            while (queue.length > 0) {
+                const current = queue.shift();
+                if (current.x === end.x && current.y === end.y) break; 
+
+                const neighbors = [
+                    {x: current.x, y: current.y - 1}, {x: current.x, y: current.y + 1},
+                    {x: current.x - 1, y: current.y}, {x: current.x + 1, y: current.y}
+                ];
+
+                for (let next of neighbors) {
+                    if (next.y >= 0 && next.y < mapGrid.length && next.x >= 0 && next.x < mapGrid[0].length) {
+                        if (mapGrid[next.y][next.x] !== 1) {
+                            const key = `${next.x},${next.y}`;
+                            if (!visited.has(key)) {
+                                visited.add(key);
+                                cameFrom[key] = current;
+                                queue.push(next);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let path = [];
+            let curr = end;
+            if (!cameFrom[`${curr.x},${curr.y}`] && (curr.x !== start.x || curr.y !== start.y)) return []; 
+
+            while (curr.x !== start.x || curr.y !== start.y) {
+                path.push(curr);
+                curr = cameFrom[`${curr.x},${curr.y}`];
+                if (!curr) break; 
+            }
+            path.reverse();
+            return path;
+        }
+
+        function updateMonster(delta) {
+            if(!isGameActive || !monster) return;
+
+            pathUpdateTimer += delta;
+            if (pathUpdateTimer > 0.5) {
+                const playerGrid = worldToGrid(camera.position.x, camera.position.z);
+                const monsterGrid = worldToGrid(monster.position.x, monster.position.z);
+                currentPath = findPath(monsterGrid, playerGrid);
+                pathUpdateTimer = 0;
+            }
+
+            let targetPos = camera.position;
+
+            if (currentPath.length > 0) {
+                const nextNode = currentPath[0];
+                const nextWorld = gridToWorld(nextNode.x, nextNode.y);
+                targetPos = new THREE.Vector3(nextWorld.x, 0, nextWorld.z);
+                
+                if (Math.abs(monster.position.x - nextWorld.x) < 1 && Math.abs(monster.position.z - nextWorld.z) < 1) {
+                    currentPath.shift();
+                }
+            }
+
+            monster.lookAt(targetPos.x, monster.position.y + 6, targetPos.z);
+            const dir = new THREE.Vector3().subVectors(targetPos, monster.position);
+            dir.y = 0; dir.normalize();
+            
+            monster.position.add(dir.multiplyScalar(currentMonsterSpeed));
+            monster.position.y = Math.abs(Math.sin(Date.now() * 0.008)) * 0.2; 
+
+            // Limb Animation
+            const time = Date.now() * 0.008; // Match walk bob speed
+            if (monster.userData.limbs) {
+                // Legs swing
+                monster.userData.limbs.leftLeg.rotation.x = Math.sin(time) * 0.6;
+                monster.userData.limbs.rightLeg.rotation.x = Math.sin(time + Math.PI) * 0.6;
+                // Arms swing opposite
+                monster.userData.limbs.leftArm.rotation.x = Math.sin(time + Math.PI) * 0.5;
+                monster.userData.limbs.rightArm.rotation.x = Math.sin(time) * 0.5;
+            }
+
+            const dist = new THREE.Vector2(monster.position.x, monster.position.z).distanceTo(new THREE.Vector2(camera.position.x, camera.position.z));
+            
+            if (dist < 15 && audioCtx.currentTime > lastWhisperTime + 8) {
+                playWhisperSound();
+                lastWhisperTime = audioCtx.currentTime;
+            }
+
+            if (dist < 4.5) jumpscare();
+        }
+        
+        // Extra update for menu idle
+        function updateMenuMonster() {
+             const time = Date.now() * 0.002; // Slow breathe
+             if (monster && monster.userData.limbs) {
+                 // Breathing bob
+                 monster.position.y = Math.abs(Math.sin(time)) * 0.15;
+                 
+                 // Subtle arm swaying
+                 monster.userData.limbs.leftArm.rotation.x = Math.sin(time) * 0.1;
+                 monster.userData.limbs.rightArm.rotation.x = Math.sin(time) * 0.1;
+                 
+                 // Occasional creepy twitch
+                 if (Math.random() > 0.99) {
+                     monster.rotation.y += (Math.random() - 0.5) * 0.2;
+                     // Reset rotation slowly next frame by lookAt in init logic not running constantly
+                     // But we can just snap it back or let it jitter
+                     setTimeout(() => { if(monster) monster.lookAt(camera.position); }, 100);
+                 }
+             }
+        }
+
+        // --- AUDIO ---
+        function playCaveSound() {
+            const audio = new Audio("https://www.myinstants.com/media/sounds/cave-ambience-1.mp3");
+            audio.volume = 0.6;
+            audio.play().catch(e => {});
+        }
+
+        function playCaveSound2() {
+             const audio = new Audio("https://www.myinstants.com/media/sounds/cave-17.mp3");
+             audio.volume = 0.6;
+             audio.play().catch(e => {});
+        }
+
+        function playWhisperSound() {
+            const audio = new Audio("https://www.myinstants.com/media/sounds/scary-whisper.mp3");
+            audio.volume = 1.0; 
+            audio.playbackRate = 0.6; 
+            if (audio.preservesPitch !== undefined) audio.preservesPitch = false;
+            else if (audio.mozPreservesPitch !== undefined) audio.mozPreservesPitch = false;
+            else if (audio.webkitPreservesPitch !== undefined) audio.webkitPreservesPitch = false;
+            audio.play().catch(e => {});
+        }
+
+        function playRandomAmbience() {
+            if(audioCtx.state === 'suspended') return;
+            if (Math.random() < 0.5) playCaveSound();
+            else playCaveSound2(); 
+        }
+
+        function playSwitchSound() {
+            const audio = new Audio("https://www.myinstants.com/media/sounds/switch-off.mp3");
+            audio.volume = 0.8;
+            audio.play().catch(e => {});
+        }
+
+        function playFootstep() {
+            // Procedural footstep (low thud) to ensure no load failure
+            if(audioCtx.state === 'suspended') return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+            
+            // Create a noise buffer
+            const bufferSize = audioCtx.sampleRate * 0.1; // 0.1 seconds
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+
+            filter.type = "lowpass";
+            filter.frequency.value = 600; // Crunchier/Harder step
+
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            // Louder footsteps (gain 3.5)
+            gain.gain.setValueAtTime(3.5, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+            noise.start();
+        }
+        
+        function playBreath() {
+            if(audioCtx.state === 'suspended') return;
+            const osc = audioCtx.createBufferSource();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+            
+            // Reuse noise buffer logic or create new small one
+            const bufferSize = audioCtx.sampleRate * 1.0; // 1 second breath
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * 0.5;
+            }
+            osc.buffer = buffer;
+
+            filter.type = "lowpass";
+            filter.frequency.value = 400;
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.8, now + 0.2); // Increased volume from 0.3 to 0.8
+            gain.gain.linearRampToValueAtTime(0, now + 0.8); // Fade out
+
+            osc.start();
+        }
+
+        function playHum() { }
+
+        function screamSound() {
+            const url = "https://www.myinstants.com/media/sounds/golden-freddy-jump-scare.mp3";
+            const a1 = new Audio(url);
+            const a2 = new Audio(url);
+            activeScreams = [a1, a2];
+            a1.play().catch(() => {});
+            a2.play().catch(() => {});
+        }
+        
+        function checkMenuMusic() {
+            if (!isGameActive && menuMusic && menuMusic.paused && !isDead && !isWon) {
+                menuMusic.play().catch(() => {});
+            }
+        }
+
+        // --- GAME LOOP ---
+        function jumpscare() {
+            if(isDead || isWon) return;
+            isDead = true;
+            document.exitPointerLock();
+            
+            // Hide UI on death
+            document.getElementById('ui-layer').style.display = 'none';
+
+            const scareEl = document.getElementById('scare-face');
+            scareEl.style.display = 'block';
+            scareEl.classList.add('flashing');
+            scareEl.classList.add('attacking'); // Trigger CSS animation
+            
+            screamSound();
+            
+            setTimeout(() => {
+                scareEl.style.display = 'none';
+                scareEl.classList.remove('attacking');
+                document.getElementById('game-over-screen').style.display = 'flex';
+                isGameActive = false;
+                activeScreams.forEach(s => { s.pause(); s.currentTime = 0; });
+                activeScreams = [];
+                
+                // Play ending music
+                if(menuMusic) {
+                    menuMusic.currentTime = 0;
+                    menuMusic.play().catch(()=>{});
+                }
+            }, 1500);
+        }
+
+        function gameWin() {
+            if(isWon || isDead) return;
+            isWon = true;
+            document.exitPointerLock();
+            
+            // Hide UI on win
+            document.getElementById('ui-layer').style.display = 'none';
+            
+            document.getElementById('win-screen').style.display = 'flex';
+            isGameActive = false;
+            
+            // Play ending music
+            if(menuMusic) {
+                menuMusic.currentTime = 0;
+                menuMusic.play().catch(()=>{});
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if(isGameActive && !isDead && !isWon) {
+                const time = performance.now();
+                const delta = (time - prevTime) / 1000;
+                prevTime = time;
+
+                updatePlayer(delta);
+                updateMonster(delta);
+                
+                if (audioCtx.currentTime > nextAmbienceTime) {
+                    playRandomAmbience();
+                    nextAmbienceTime = audioCtx.currentTime + 5 + Math.random() * 10; 
+                }
+
+                // Hint logic
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+                const intersects = raycaster.intersectObjects(scene.children, true);
+                const hint = document.getElementById('interact-hint');
+                let foundSwitch = false;
+                if(intersects.length > 0 && intersects[0].distance < INTERACTION_DIST) {
+                    let obj = intersects[0].object;
+                    while(obj.parent && obj.parent.type !== 'Scene') {
+                        if(obj.parent.userData && obj.parent.userData.lightMesh && !obj.parent.userData.active) {
+                            foundSwitch = true;
+                        }
+                        obj = obj.parent;
+                    }
+                }
+                hint.style.display = foundSwitch ? 'block' : 'none';
+
+            } else {
+                prevTime = performance.now(); 
+                // Render menu monster idle
+                updateMenuMonster();
+                
+                // FLICKER LOGIC
+                if (menuLight) {
+                    // Random intensity between 0.8 and 1.2
+                    // Occasional dip to 0.2
+                    if (Math.random() > 0.95) {
+                        menuLight.intensity = 0.2 + Math.random() * 0.3;
+                    } else {
+                        menuLight.intensity = 0.8 + Math.random() * 0.4;
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+
+    </script>
+</body>
+</html>
